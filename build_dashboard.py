@@ -662,47 +662,78 @@ pages.overview = () => {
     ebitda: DATA.pl_ebitda['2026'] || 0,
   };
 
+  // ==== KPI tiles: и План 2026, и Факт 2025 сразу ====
+  const factYear = '2025';
+  const revFact = DATA.pl_yearly['Доход от основной деятельности'][factYear] || 0;
+  const expFact = (DATA.pl_yearly['Переменные производственные расходы'][factYear]||0)
+    + (DATA.pl_yearly['Постоянные производственные расходы'][factYear]||0)
+    + (DATA.pl_yearly['Расходы по реализации'][factYear]||0)
+    + (DATA.pl_yearly['Административные расходы'][factYear]||0);
+  const ebFact = DATA.pl_ebitda[factYear] || 0;
+  const marginFact = revFact ? ebFact/revFact*100 : 0;
+  const marginPlan = rev ? eb/rev*100 : 0;
+  // Факт 2026 (пока в источниках его нет: PBI Версия='bud' у всех строк)
+  const hasFact2026 = DATA.versions && DATA.versions.includes('Факт');
+  const rpeFact = headCount ? revFact/headCount : 0;
+  const rpePlan = headCount ? rev/headCount : 0;
+
+  // Small helper: renders a dual-value KPI tile (Факт + План)
+  const dualTile = ({label, factValue, planValue, factSub, planSub, factHint, planHint, factClass, planClass}) => `
+    <div class="kpi" style="padding:14px 16px">
+      <div class="label" style="margin-bottom:8px">${label}</div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px">
+        <div>
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:3px">
+            <span class="kpi-badge fact">Факт ${factYear}</span>
+          </div>
+          <div class="value num ${factClass||''}" style="font-size:17px">${factValue}</div>
+          <div class="delta" style="font-size:10.5px">${factSub||''}</div>
+          ${factHint ? '<div style="font-size:10px; color:var(--muted); margin-top:2px">'+factHint+'</div>' : ''}
+        </div>
+        <div style="border-left:1px solid var(--border); padding-left:12px">
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:3px">
+            <span class="kpi-badge plan">План 2026</span>
+          </div>
+          <div class="value num ${planClass||''}" style="font-size:17px">${planValue}</div>
+          <div class="delta" style="font-size:10.5px">${planSub||''}</div>
+          ${planHint ? '<div style="font-size:10px; color:var(--muted); margin-top:2px">'+planHint+'</div>' : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
+  const noFactBadge = '<span style="color:var(--muted); font-size:10px">нет данных за 2026</span>';
+
   return `
     <div class="page-head">
       <h1>Обзор</h1>
       ${renderFilterBar('overview')}
     </div>
 
-    ${(() => {
-      // Факт-KPI из PL_ES (2025 — последний закрытый год)
-      const factYear = '2025', prevYear = '2024';
-      const revFact = DATA.pl_yearly['Доход от основной деятельности'][factYear] || 0;
-      const revPrev = DATA.pl_yearly['Доход от основной деятельности'][prevYear] || 0;
-      const expFact = (DATA.pl_yearly['Переменные производственные расходы'][factYear]||0)
-        + (DATA.pl_yearly['Постоянные производственные расходы'][factYear]||0)
-        + (DATA.pl_yearly['Расходы по реализации'][factYear]||0)
-        + (DATA.pl_yearly['Административные расходы'][factYear]||0);
-      const expPrev = (DATA.pl_yearly['Переменные производственные расходы'][prevYear]||0)
-        + (DATA.pl_yearly['Постоянные производственные расходы'][prevYear]||0)
-        + (DATA.pl_yearly['Расходы по реализации'][prevYear]||0)
-        + (DATA.pl_yearly['Административные расходы'][prevYear]||0);
-      const ebFact = DATA.pl_ebitda[factYear] || 0;
-      const ebPrev = DATA.pl_ebitda[prevYear] || 0;
-      const marginFact = revFact ? ebFact/revFact*100 : 0;
-      const marginPrev = revPrev ? ebPrev/revPrev*100 : 0;
-      const revGrowth = revPrev ? (revFact-revPrev)/revPrev*100 : null;
-      const expGrowth = expPrev ? (expFact-expPrev)/expPrev*100 : null;
-      const ebGrowth = ebPrev ? (ebFact-ebPrev)/Math.abs(ebPrev)*100 : null;
-      const rpe = headCount ? revFact/headCount : 0;
-      return `
     <div class="kpi-grid">
-      <div class="kpi"><div class="label">Выручка ${factYear} <span class="kpi-badge fact">Факт</span></div>
-        <div class="value num">${fmtCompact(revFact)} ₸</div>
-        <div class="delta ${revGrowth!==null && revGrowth>=0?'pos':(revGrowth!==null?'neg':'')}">${revGrowth!==null ? (revGrowth>=0?'+':'')+revGrowth.toFixed(1)+'% vs '+prevYear+' факт' : '—'}</div>
-      </div>
-      <div class="kpi"><div class="label">Расходы ${factYear} <span class="kpi-badge fact">Факт</span></div>
-        <div class="value num">${fmtCompact(expFact)} ₸</div>
-        <div class="delta ${expGrowth!==null && expGrowth>=0?'neg':'pos'}">${expGrowth!==null ? (expGrowth>=0?'+':'')+expGrowth.toFixed(1)+'% vs '+prevYear+' · '+(revFact?(expFact/revFact*100).toFixed(1)+'% от выручки':'—') : '—'}</div>
-      </div>
-      <div class="kpi"><div class="label">EBITDA ${factYear} <span class="kpi-badge fact">Факт</span></div>
-        <div class="value num">${fmtCompact(ebFact)} ₸</div>
-        <div class="delta ${marginFact>=15?'pos':(marginFact>0?'':'neg')}">Маржа ${fmtPct(marginFact)} · ${ebGrowth!==null ? (ebGrowth>=0?'+':'')+ebGrowth.toFixed(1)+'% vs '+prevYear : ''}</div>
-      </div>
+      ${dualTile({
+        label: 'Выручка',
+        factValue: fmtCompact(revFact) + ' ₸',
+        planValue: fmtCompact(rev) + ' ₸',
+        factSub: '',
+        planSub: growthYoY!==null ? `<span class="${growthYoY>=0?'pos':'neg'}">${(growthYoY>=0?'+':'')+growthYoY.toFixed(1)}%</span> vs 2025` : ''
+      })}
+      ${dualTile({
+        label: 'Расходы',
+        factValue: fmtCompact(expFact) + ' ₸',
+        planValue: fmtCompact(-totalExp) + ' ₸',
+        factSub: revFact?(expFact/revFact*100).toFixed(1)+'% от выручки':'',
+        planSub: (rev?(-totalExp/rev*100).toFixed(1)+'% от выручки':'') + ' · КЦ ' + fmtCompact(-expKC)
+      })}
+      ${dualTile({
+        label: 'EBITDA',
+        factValue: fmtCompact(ebFact) + ' ₸',
+        planValue: fmtCompact(eb) + ' ₸',
+        factSub: 'Маржа ' + fmtPct(marginFact),
+        planSub: 'Маржа ' + fmtPct(marginPlan),
+        factClass: ebFact>=0?'pos':'neg',
+        planClass: eb>=0?'pos':'neg'
+      })}
       <div class="kpi"><div class="label">Остаток на счетах <span class="kpi-badge fact">Факт</span></div>
         <div class="value num">${fmt(ost/1e6,1)} млн ₸</div>
         <div class="delta ${cashRunway>=2?'pos':(cashRunway>=1?'':'neg')}">Runway ${cashRunway.toFixed(1)} мес. плановых расходов</div>
@@ -722,12 +753,14 @@ pages.overview = () => {
         <div class="value num">${headCount}</div>
         <div class="delta">KZ ${DATA.org_kz?.length||0} · UZ ${DATA.org_uz?.length||0}</div>
       </div>
-      <div class="kpi"><div class="label">Выручка на 1 сотрудника ${factYear} <span class="kpi-badge fact">Факт</span></div>
-        <div class="value num">${headCount?fmtCompact(rpe):'—'} ₸</div>
-        <div class="delta">Факт выручки ${factYear} ÷ текущий штат</div>
-      </div>
-    </div>`;
-    })()}
+      ${dualTile({
+        label: 'Выручка на 1 сотрудника',
+        factValue: headCount?fmtCompact(rpeFact)+' ₸':'—',
+        planValue: headCount?fmtCompact(rpePlan)+' ₸':'—',
+        factSub: 'Факт 2025 ÷ штат',
+        planSub: 'План 2026 ÷ штат'
+      })}
+    </div>
 
     <div class="grid-2">
       <div class="card">
