@@ -1,0 +1,28 @@
+# Secrets
+.env
+
+# Database
+backend/*.db
+backend/*.db-journal
+backend/*.db-wal
+backend/*.db-shm
+
+# Data
+data/*.csv
+data/dashboard_data.json
+data/*.name.txt
+
+# Build artifacts
+frontend/index.html
+dashboard.html
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
