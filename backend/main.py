@@ -65,11 +65,15 @@ async def security_headers(request: Request, call_next):
 
 @app.on_event('startup')
 def startup():
-    db.init()
-    if not db.one('SELECT id FROM users WHERE role = ? LIMIT 1', ('super_admin',)):
-        # Bootstrap the first super admin if DB is empty
-        from .init_db import main as boot
-        boot()
+    # Best-effort init: don't crash the function if the DB is temporarily unreachable
+    # (e.g. Neon cold-start). Migrations and bootstrap are also runnable via `python -m backend.init_db`.
+    try:
+        db.init()
+        if not db.one('SELECT id FROM users WHERE role = ? LIMIT 1', ('super_admin',)):
+            from .init_db import main as boot
+            boot()
+    except Exception as e:
+        print(f'[startup] db init deferred: {e!r}')
 
 
 # ==================== Audit ====================
@@ -389,15 +393,22 @@ _data_cache = {'mtime': 0, 'blob': None}
 
 
 def load_data_blob() -> dict:
-    path = Path(settings.data_json)
-    if not path.exists():
-        return {'error': 'data-not-found', 'path': str(path)}
-    mtime = path.stat().st_mtime
-    if _data_cache['mtime'] != mtime:
-        with open(path, encoding='utf-8') as f:
-            _data_cache['blob'] = json.load(f)
-        _data_cache['mtime'] = mtime
-    return _data_cache['blob']
+    # Search for dashboard_data.json in the deployed layout (data/ may sit next to
+    # api/ on Vercel, or in /var/task/data at runtime).
+    candidates = [
+        Path(settings.data_json),
+        Path(__file__).resolve().parent.parent / 'data' / 'dashboard_data.json',
+        Path('/var/task/data/dashboard_data.json'),
+    ]
+    for p in candidates:
+        if p.exists():
+            mtime = p.stat().st_mtime
+            if _data_cache['mtime'] != mtime:
+                with open(p, encoding='utf-8') as f:
+                    _data_cache['blob'] = json.load(f)
+                _data_cache['mtime'] = mtime
+            return _data_cache['blob']
+    return {'error': 'data-not-found', 'searched': [str(p) for p in candidates]}
 
 
 @app.get('/api/data')
