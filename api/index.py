@@ -12,3 +12,9 @@ if str(ROOT) not in sys.path:
 os.environ.setdefault('DATA_JSON', str(ROOT / 'data' / 'dashboard_data.json'))
 
 from backend.main import app  # noqa: E402,F401  (Vercel imports `app` from here)
+
+# Debug catch-all: temporary, helps diagnose routing on Vercel
+@app.get('/__debug/path')
+def _debug_path(request):  # type: ignore
+    return {'scope_path': request.scope.get('path'), 'root_path': request.scope.get('root_path'), 'raw_path': request.scope.get('raw_path', b'').decode(errors='ignore')}
+

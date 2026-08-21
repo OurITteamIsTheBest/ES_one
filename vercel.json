@@ -6,10 +6,6 @@
       "includeFiles": "data/**"
     }
   },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/public/$1" }
-  ],
   "headers": [
     {
       "source": "/(.*)",
