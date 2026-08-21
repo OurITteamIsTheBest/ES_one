@@ -61,7 +61,12 @@ HTML = r'''<meta charset="utf-8">
   .filter-dd-quick a { color: #2563eb; font-size: 11px; cursor: pointer; text-decoration: underline; }
   .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 20px; }
   .kpi { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: var(--panel); }
-  .kpi .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .kpi-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+  .kpi-badge.plan { background: #eff6ff; color: #1e40af; }
+  .kpi-badge.fact { background: #ecfdf5; color: #047857; }
+  .kpi-badge.calc { background: #f3f4f6; color: #6b7280; }
+  .kpi-badge.forecast { background: #fef3c7; color: #92400e; }
   .kpi .value { font-size: 22px; font-weight: 600; margin-top: 8px; letter-spacing: -0.01em; }
   .kpi .delta { font-size: 11px; margin-top: 4px; color: var(--muted); }
   .kpi .delta.pos { color: var(--pos); }
@@ -664,40 +669,40 @@ pages.overview = () => {
     </div>
 
     <div class="kpi-grid">
-      <div class="kpi"><div class="label">Выручка</div>
+      <div class="kpi"><div class="label">Выручка <span class="kpi-badge plan">План</span></div>
         <div class="value num">${fmtCompact(rev)} ₸</div>
         <div class="delta ${growthYoY!==null && growthYoY>=0?'pos':(growthYoY!==null?'neg':'')}">${growthYoY!==null ? fmtPct(growthYoY) + ' vs 2025 факт' : 'нет базы 2025'}</div>
       </div>
-      <div class="kpi"><div class="label">Расходы</div>
+      <div class="kpi"><div class="label">Расходы <span class="kpi-badge plan">План</span></div>
         <div class="value num">${fmtCompact(-totalExp)} ₸</div>
         <div class="delta">из них КЦ ${fmtCompact(-expKC)} ₸ · ${rev?fmtPct(-totalExp/rev*100):'—'} от выручки</div>
       </div>
-      <div class="kpi"><div class="label">EBITDA</div>
+      <div class="kpi"><div class="label">EBITDA <span class="kpi-badge plan">План</span></div>
         <div class="value num">${fmtCompact(eb)} ₸</div>
         <div class="delta ${margin>=15?'pos':(margin>0?'':'neg')}">Маржа ${fmtPct(margin)}</div>
       </div>
-      <div class="kpi"><div class="label">Остаток на счетах</div>
+      <div class="kpi"><div class="label">Остаток на счетах <span class="kpi-badge fact">Факт</span></div>
         <div class="value num">${fmt(ost/1e6,1)} млн ₸</div>
         <div class="delta ${cashRunway>=2?'pos':(cashRunway>=1?'':'neg')}">Runway ${cashRunway.toFixed(1)} мес. расходов</div>
       </div>
     </div>
 
     <div class="kpi-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr))">
-      <div class="kpi"><div class="label">Дебиторка 30+</div>
+      <div class="kpi"><div class="label">Дебиторка 30+ <span class="kpi-badge fact">Факт</span></div>
         <div class="value num">${fmt(dzTotal/1e6,0)} млн ₸</div>
-        <div class="delta">${DATA.dz?.line_items?.length||0} позиций</div>
+        <div class="delta">${DATA.dz?.line_items?.length||0} позиций · ${DATA.dz?.source_file || ''}</div>
       </div>
-      <div class="kpi"><div class="label">Штат (активные)</div>
+      <div class="kpi"><div class="label">ДЗ 91+ дн (просроч.) <span class="kpi-badge fact">Факт</span></div>
+        <div class="value num neg">${fmt(((DATA.dz?.line_items||[]).reduce((s,x)=>s+x.d_91_365+x.d_365,0))/1e6, 0)} млн ₸</div>
+        <div class="delta">${dzTotal?((((DATA.dz?.line_items||[]).reduce((s,x)=>s+x.d_91_365+x.d_365,0))/dzTotal)*100).toFixed(1):0}% от общей ДЗ · риск списания</div>
+      </div>
+      <div class="kpi"><div class="label">Штат (активные) <span class="kpi-badge fact">Факт</span></div>
         <div class="value num">${headCount}</div>
         <div class="delta">KZ ${DATA.org_kz?.length||0} · UZ ${DATA.org_uz?.length||0}</div>
       </div>
-      <div class="kpi"><div class="label">Выручка на 1 сотрудника</div>
+      <div class="kpi"><div class="label">Выручка на 1 сотрудника <span class="kpi-badge calc">Расчёт</span></div>
         <div class="value num">${headCount?fmtCompact(rev/headCount):'—'} ₸</div>
-        <div class="delta">${filterState.months.size} мес.</div>
-      </div>
-      <div class="kpi"><div class="label">Топ-3 клиента в ДЗ</div>
-        <div class="value num">${top3ClientsShare.toFixed(1)}%</div>
-        <div class="delta">концентрация задолженности</div>
+        <div class="delta">План выручки ÷ штат · ${filterState.months.size} мес.</div>
       </div>
     </div>
 
