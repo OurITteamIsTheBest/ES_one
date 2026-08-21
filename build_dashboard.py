@@ -535,10 +535,6 @@ function renderFilterBar(page) {
         </select>
       </div>
       <div class="filter-group">
-        <span class="filter-label">Версия</span>
-        <div class="filter-chips">${versionChips}</div>
-      </div>
-      <div class="filter-group">
         <span class="filter-label">Месяцы</span>
         <div class="filter-chips">
           ${monthChips}
@@ -663,8 +659,7 @@ pages.overview = () => {
 
   return `
     <div class="page-head">
-      <h1>Обзор <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
-      <div class="sub">2026 · валюта — тыс. ₸</div>
+      <h1>Обзор</h1>
       ${renderFilterBar('overview')}
     </div>
 
@@ -762,6 +757,140 @@ pages.overview = () => {
       </div>
     </div>
 
+    <div class="grid-2" style="margin-top:16px">
+      <div class="card">
+        <div class="card-head"><h3>Финансовое здоровье · CFO</h3>
+          <span style="color:var(--muted); font-size:11.5px">оборачиваемость и покрытие</span></div>
+        ${(() => {
+          const annualRevInFilter = rev * (12/Math.max(1, filterState.months.size));
+          const dso = annualRevInFilter ? (dzTotal / (annualRevInFilter*1000)) * 365 : 0;
+          const dsoIdeal = 45;
+          const avgMonthExpTz = avgMonthExp * 1000;
+          const workingCap = ost - dzTotal * 0;   // здесь просто остаток; полный WC требует запасов
+          const currentRatio = avgMonthExpTz ? (ost + dzTotal) / avgMonthExpTz : 0;
+          return `<table><tbody>
+            <tr><td style="text-align:left"><b>DSO</b> · дней сборки дебиторки</td>
+                <td class="num ${dso<=45?'pos':(dso<=90?'':'neg')}">${dso.toFixed(1)} дн</td>
+                <td style="color:var(--muted); font-size:11px">целевой ≤${dsoIdeal}</td></tr>
+            <tr><td style="text-align:left"><b>Cash runway</b> · месяцев расходов</td>
+                <td class="num ${cashRunway>=3?'pos':(cashRunway>=1.5?'':'neg')}">${cashRunway.toFixed(2)} мес</td>
+                <td style="color:var(--muted); font-size:11px">целевой ≥3</td></tr>
+            <tr><td style="text-align:left"><b>Current ratio (упрощ.)</b></td>
+                <td class="num ${currentRatio>=1.5?'pos':''}">${currentRatio.toFixed(2)}</td>
+                <td style="color:var(--muted); font-size:11px">(cash+ДЗ) / мес.расходы</td></tr>
+            <tr><td style="text-align:left"><b>ДЗ 91+ дней</b> · «зависшая»</td>
+                <td class="num neg">${fmt((DATA.dz?.line_items||[]).reduce((s,x)=>s+x.d_91_365+x.d_365,0)/1e6, 1)} млн ₸</td>
+                <td style="color:var(--muted); font-size:11px">риск невозврата</td></tr>
+            <tr><td style="text-align:left"><b>Средние расходы в месяц</b></td>
+                <td class="num">${fmt(avgMonthExpTz/1e6, 1)} млн ₸</td>
+                <td style="color:var(--muted); font-size:11px">по плану 2026</td></tr>
+          </tbody></table>`;
+        })()}
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Прогноз денежного потока · 6 мес</h3>
+          <span style="color:var(--muted); font-size:11.5px">от текущего остатка + месячный EBITDA</span></div>
+        ${(() => {
+          // Project cash: start with current ostatok, add each month EBITDA*1000 (тыс→₸)
+          // Use next 6 months from PBI atoms (from current month onwards)
+          // Since PBI is 2026 план, take avg EBITDA per month or actual monthly
+          const currentMonth = new Date().getMonth() + 1;
+          const projectionMonths = [];
+          let cash = ost;
+          const startIdx = Math.max(0, currentMonth - 1);
+          for (let i = 0; i < 6; i++) {
+            const monthIdx = (startIdx + i) % 12;
+            const monthEbitda = ebM[monthIdx] || (eb / 12);
+            cash += monthEbitda * 1000; // тыс→₸
+            projectionMonths.push({ label: M[monthIdx], cash });
+          }
+          const minCash = Math.min(...projectionMonths.map(p => p.cash), ost);
+          const maxCash = Math.max(...projectionMonths.map(p => p.cash), ost);
+          const finalCash = projectionMonths[projectionMonths.length-1].cash;
+          const projected = finalCash - ost;
+          return `<div style="font-size:12px; margin-bottom:8px; color:var(--muted)">
+            Через 6 мес: <b style="color:var(--text)">${fmt(finalCash/1e6, 0)} млн ₸</b> · Δ <span class="${projected>=0?'pos':'neg'}">${projected>=0?'+':''}${fmt(projected/1e6, 0)} млн</span>
+          </div>
+          ${lineChart([projectionMonths.map(p => p.cash/1e6)], {height:180, labels: projectionMonths.map(p => p.label), colors:['#0f766e']})}
+          <div style="font-size:11px; color:var(--muted); margin-top:8px">
+            ${finalCash < 0 ? '⚠ Прогноз ниже нуля — риск кассового разрыва' : (projected >= 0 ? '✓ Кэш растёт по плану' : 'Кэш снижается, но пока положителен')}
+          </div>`;
+        })()}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><h3>Break-even по филиалам · прибыльность</h3>
+        <span style="color:var(--muted); font-size:11.5px">P&L каждого филиала в фильтре · тыс. ₸</span></div>
+      ${(() => {
+        const rowsData = [...filterState.filials].map(f => {
+          const sub = at.filter(a => a[2]===f);
+          const r = sub.filter(a => a[1]==='Доходы').reduce((s,a)=>s+a[6],0);
+          const ex = sub.filter(a => a[1]==='Расходы' || a[1]==='Расходы КЦ').reduce((s,a)=>s+a[6],0);
+          const ebv = sub.filter(a => a[1]==='EBITDA').reduce((s,a)=>s+a[6],0);
+          const m = r ? ebv/r*100 : 0;
+          return {f, r, ex, ebv, m};
+        }).sort((a,b) => b.ebv - a.ebv);
+        return `<div class="table-scroll"><table>
+          <thead><tr><th style="text-align:left">Филиал</th><th>Выручка</th><th>Расходы</th><th>EBITDA</th><th>Маржа</th><th style="text-align:left">Статус</th></tr></thead>
+          <tbody>
+            ${rowsData.map(d => `<tr>
+              <td style="text-align:left"><b>${d.f}</b></td>
+              <td class="num">${fmtCompact(d.r)}</td>
+              <td class="num neg">${fmtCompact(d.ex)}</td>
+              <td class="num ${d.ebv>=0?'pos':'neg'}" style="font-weight:600">${fmtCompact(d.ebv)}</td>
+              <td class="num ${d.m>=15?'pos':(d.m>=0?'':'neg')}">${fmtPct(d.m)}</td>
+              <td style="text-align:left">${d.ebv >= 0 ? '<span style="color:var(--pos)">● Прибыльный</span>' : '<span style="color:var(--neg)">● Убыточный</span>'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+      })()}
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><h3>Оборачиваемость дебиторки · по дивизионам</h3>
+        <span style="color:var(--muted); font-size:11.5px">DSO — где деньги висят дольше</span></div>
+      ${(() => {
+        if (!DATA.dz?.line_items?.length) return '<div class="empty-state">Нет данных ДЗ</div>';
+        const byDiv = {};
+        DATA.dz.line_items.forEach(x => {
+          byDiv[x.div] = byDiv[x.div] || {total:0, d_365:0, d_91:0, cnt:0};
+          byDiv[x.div].total += x.total;
+          byDiv[x.div].d_365 += x.d_365;
+          byDiv[x.div].d_91 += x.d_91_365 + x.d_365;
+          byDiv[x.div].cnt++;
+        });
+        const rows = Object.entries(byDiv).sort((a,b) => b[1].total - a[1].total);
+        const grandTotal = rows.reduce((s,r) => s + r[1].total, 0);
+        return `<div class="table-scroll"><table>
+          <thead><tr><th style="text-align:left">Дивизион</th><th>Позиций</th><th>Всего ДЗ 30+</th><th>Из них 91+</th><th>Просроч. &gt; года</th><th>Доля от общего</th></tr></thead>
+          <tbody>
+            ${rows.map(([d, x]) => `<tr>
+              <td style="text-align:left"><b>${d}</b></td>
+              <td class="num">${x.cnt}</td>
+              <td class="num">${fmt(x.total/1e6, 1)} млн</td>
+              <td class="num" style="color:#b45309">${fmt(x.d_91/1e6, 1)} млн</td>
+              <td class="num neg">${fmt(x.d_365/1e6, 1)} млн</td>
+              <td class="num" style="color:var(--muted)">${(x.total/grandTotal*100).toFixed(1)}%</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+      })()}
+    </div>
+
+    <div class="card" style="margin-top:16px; background:var(--subtle); border-style:dashed">
+      <div class="card-head"><h3>CAC / LTV · юнит-экономика</h3>
+        <span style="color:var(--muted); font-size:11.5px">для инвестора и учредителя</span></div>
+      <div style="padding:12px 0; color:var(--muted); font-size:12.5px; line-height:1.6">
+        <b style="color:var(--text)">Нет данных для расчёта.</b> Появится, когда подключим:
+        <ul style="margin:8px 0 0; padding-left:20px">
+          <li><b>CAC</b> (Customer Acquisition Cost) — расходы на маркетинг+продажи / число новых клиентов. Ждём раздел «Продажи B2B/B2G».</li>
+          <li><b>LTV</b> (Lifetime Value) — средний доход с клиента за всю жизнь. Требует ID клиента и его историю в PBI.</li>
+          <li><b>Payback period</b> — CAC / LTV × месяцы. Дальше вычисляется автоматически.</li>
+        </ul>
+      </div>
+    </div>
+
     <div class="card" style="margin-top:16px">
       <div class="card-head"><h3>Матрица «Филиал × Продукт» · выручка</h3>
         <span style="color:var(--muted); font-size:11.5px">Топ-10 филиалов × топ-6 услуг · всё в тыс. ₸ · в фильтре</span></div>
@@ -846,7 +975,7 @@ pages.revenue = () => {
 
   return `
     <div class="page-head">
-      <h1>Доходы <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
+      <h1>Доходы</h1>
       <div class="sub">Структура выручки · всё в тыс. ₸</div>
       ${renderFilterBar('revenue')}
     </div>
@@ -912,7 +1041,7 @@ pages.expense = () => {
 
   return `
     <div class="page-head">
-      <h1>Расходы <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
+      <h1>Расходы</h1>
       <div class="sub">Структура расходов · всё в тыс. ₸</div>
       ${renderFilterBar('expense')}
     </div>
@@ -987,7 +1116,7 @@ pages.ebitda = () => {
 
   return `
     <div class="page-head">
-      <h1>EBITDA · Прибыльность <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
+      <h1>EBITDA · Прибыльность</h1>
       <div class="sub">Многолетняя динамика и структура по филиалам · тыс. ₸</div>
       ${renderFilterBar('ebitda')}
     </div>
