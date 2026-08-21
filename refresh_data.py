@@ -118,18 +118,24 @@ pl_yearly = {name: {y: pnum(r[rn][c]) if c < len(r[rn]) else 0 for y,c in years.
 pl_ebitda = {y: pl_yearly['Валовая прибыль'][y] - pl_yearly['Расходы по реализации'][y] - pl_yearly['Административные расходы'][y] + pl_yearly['Прочие доходы'][y] - pl_yearly['Прочие расходы'][y] for y in years}
 
 # ---- PBI atoms ----
+# Каждый атом: [m, group, fin_file, вид, статья, version, sum_k].
+# Версия — из колонки Версия (`bud` = План, `fact` = Факт, `forecast` = Прогноз).
+VERSION_MAP = {'bud': 'План', 'fact': 'Факт', 'forecast': 'Прогноз', 'plan': 'План'}
 atoms = collections.defaultdict(float)
 filials = set()
+versions = set()
 with open('pbi.csv', encoding='utf-8') as f:
     for row in csv.DictReader(f):
         try: v = float(row['sum_k'].replace(' ','').replace(',','.'))
         except: continue
         try: m = int(row['m'])
         except: continue
-        key = (m, row['Группа'], row['fin_file'], row['Вид расходов'], row['Статьи доходов и затрат'])
+        ver = VERSION_MAP.get((row.get('Версия') or '').strip().lower(), row.get('Версия','').strip() or 'План')
+        key = (m, row['Группа'], row['fin_file'], row['Вид расходов'], row['Статьи доходов и затрат'], ver)
         atoms[key] += v
         filials.add(row['fin_file'])
-atom_list = [[m,g,ff,vid,st,round(v,2)] for (m,g,ff,vid,st),v in atoms.items() if abs(v) >= 0.01]
+        versions.add(ver)
+atom_list = [[m,g,ff,vid,st,ver,round(v,2)] for (m,g,ff,vid,st,ver),v in atoms.items() if abs(v) >= 0.01]
 
 # ---- Org: load + resolve manager tree with strong matcher ----
 CYR_TO_LAT = {
@@ -365,6 +371,7 @@ data = {
     'pbi_years':[2026],
     'pl_years': list(years.keys()),
     'filials': sorted(filials),
+    'versions': sorted(versions) or ['План'],
     'atoms': atom_list,
     'org_kz': org_flat_kz,
     'org_uz': org_flat_uz,

@@ -109,6 +109,9 @@ HTML = r'''<meta charset="utf-8">
   .stat-inline .v { font-weight: 600; font-variant-numeric: tabular-nums; }
   .footer-note { color: var(--muted); font-size: 11px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); }
   .empty-state { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; background: var(--subtle); border-radius: 8px; }
+  .cadence { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; background: #eff6ff; color: #1e40af; border-radius: 999px; font-size: 11px; margin-left: 8px; font-weight: 500; }
+  .cadence.warn { background: #fef3c7; color: #92400e; }
+  .cadence.ok { background: #ecfdf5; color: #047857; }
   /* ===== Login ===== */
   .login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #fafafa; padding: 20px; }
   .login-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 32px; width: 100%; max-width: 380px; box-shadow: 0 4px 24px rgba(0,0,0,.04); }
@@ -213,6 +216,8 @@ async function bootAfterLogin() {
 function initFiltersFromData() {
   filterState.months = new Set([1,2,3,4,5,6,7,8,9,10,11,12]);
   filterState.filials = new Set(DATA.filials || []);
+  const versions = DATA.versions || ['План'];
+  if (!versions.includes(filterState.version)) filterState.version = versions[0];
 }
 
 async function tryAutoLogin() {
@@ -336,7 +341,8 @@ document.addEventListener('DOMContentLoaded', tryAutoLogin);
 const filterState = {
   year: 2026,
   months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]),
-  filials: new Set(),  // populated in initFiltersFromData() after login
+  filials: new Set(),   // populated after login
+  version: 'План',      // 'План' | 'Факт' | 'Прогноз'
 };
 const dzState = {
   div: '__all__',
@@ -368,17 +374,21 @@ const M = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Ав�
 
 // ==== Data slice helpers ====
 // atoms = [m, g, ff, vid, statya, v]
-const IDX = { m:0, g:1, ff:2, vid:3, st:4, v:5 };
+const IDX = { m:0, g:1, ff:2, vid:3, st:4, ver:5, v:6 };
 
 function filteredAtoms() {
-  return DATA.atoms.filter(a => filterState.months.has(a[0]) && filterState.filials.has(a[2]));
+  return DATA.atoms.filter(a =>
+    filterState.months.has(a[0]) &&
+    filterState.filials.has(a[2]) &&
+    a[5] === filterState.version
+  );
 }
 
 function sumBy(atoms, keyFn) {
   const m = new Map();
   for (const a of atoms) {
     const k = keyFn(a);
-    m.set(k, (m.get(k)||0) + a[5]);
+    m.set(k, (m.get(k)||0) + a[6]);
   }
   return m;
 }
@@ -388,13 +398,13 @@ function activeMonthLabels() { return activeMonths().map(m => M[m-1]); }
 function monthlySeries(atoms, group) {
   const months = activeMonths();
   const map = new Map(months.map(m => [m, 0]));
-  for (const a of atoms) if (a[1] === group && map.has(a[0])) map.set(a[0], map.get(a[0]) + a[5]);
+  for (const a of atoms) if (a[1] === group && map.has(a[0])) map.set(a[0], map.get(a[0]) + a[6]);
   return months.map(m => +map.get(m).toFixed(1));
 }
 
 function totalOf(atoms, group) {
   let s = 0;
-  for (const a of atoms) if (a[1] === group) s += a[5];
+  for (const a of atoms) if (a[1] === group) s += a[6];
   return s;
 }
 
@@ -498,6 +508,13 @@ function renderFilterBar(page) {
   const filialsCount = filterState.filials.size;
   const totalFilials = DATA.filials.length;
   const filialsLabel = filialsCount === totalFilials ? 'Все' : (filialsCount + ' из ' + totalFilials);
+  const ALL_VERSIONS = ['План','Факт','Прогноз'];
+  const availableVersions = new Set(DATA.versions || ['План']);
+  const versionChips = ALL_VERSIONS.map(v => {
+    const has = availableVersions.has(v);
+    const on = filterState.version === v;
+    return `<button class="chip-btn ${on?'on':''}" ${has?'':'disabled title="Нет данных за эту версию"'} onclick="${has?`setVersion('${v}')`:''}" style="${has?'':'opacity:.35; cursor:not-allowed'}">${v}</button>`;
+  }).join('');
   const filialDD = `
     <div class="filter-dropdown">
       <button class="filter-dd-btn" onclick="toggleFilialsMenu()">
@@ -514,8 +531,12 @@ function renderFilterBar(page) {
       <div class="filter-group">
         <span class="filter-label">Год</span>
         <select class="filter-select" onchange="setYear(this.value)">
-          <option value="2026">2026 (бюджет)</option>
+          <option value="2026">2026</option>
         </select>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">Версия</span>
+        <div class="filter-chips">${versionChips}</div>
       </div>
       <div class="filter-group">
         <span class="filter-label">Месяцы</span>
@@ -531,6 +552,8 @@ function renderFilterBar(page) {
       </div>
     </div>`;
 }
+
+function setVersion(v) { filterState.version = v; rerender(); }
 
 function toggleMonth(m) {
   if (filterState.months.has(m)) filterState.months.delete(m); else filterState.months.add(m);
@@ -583,7 +606,7 @@ pages.overview = () => {
   const ffArr = [...byFf.entries()].sort((a,b) => b[1]-a[1]);
 
   // Structure of revenue by service
-  const bySt = sumBy(at.filter(a => a[1]==='Доходы' && a[5] > 0), a => a[4]);
+  const bySt = sumBy(at.filter(a => a[1]==='Доходы' && a[6] > 0), a => a[4]);
   const stArr = [...bySt.entries()].filter(([k,v]) => v>0).sort((a,b) => b[1]-a[1]).slice(0,8);
   const stTotal = stArr.reduce((s,x)=>s+x[1],0);
 
@@ -593,8 +616,8 @@ pages.overview = () => {
 
   return `
     <div class="page-head">
-      <h1>Обзор</h1>
-      <div class="sub">Бюджет 2026 · валюта — тыс. ₸</div>
+      <h1>Обзор <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
+      <div class="sub">2026 · валюта — тыс. ₸</div>
       ${renderFilterBar('overview')}
     </div>
 
@@ -685,7 +708,7 @@ pages.overview = () => {
 pages.revenue = () => {
   const at = filteredAtoms();
   const revAtoms = at.filter(a => a[1]==='Доходы');
-  const rev = revAtoms.reduce((s,a)=>s+a[5],0);
+  const rev = revAtoms.reduce((s,a)=>s+a[6],0);
   const revM = monthlySeries(at, 'Доходы');
   const byFf = [...sumBy(revAtoms, a=>a[2]).entries()].sort((a,b) => b[1]-a[1]);
   const byStAll = [...sumBy(revAtoms, a=>a[4]).entries()].filter(([k,v]) => v>0).sort((a,b) => b[1]-a[1]);
@@ -696,7 +719,7 @@ pages.revenue = () => {
 
   return `
     <div class="page-head">
-      <h1>Доходы</h1>
+      <h1>Доходы <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
       <div class="sub">Структура выручки · всё в тыс. ₸</div>
       ${renderFilterBar('revenue')}
     </div>
@@ -753,7 +776,7 @@ pages.revenue = () => {
 pages.expense = () => {
   const at = filteredAtoms();
   const expAtoms = at.filter(a => a[1]==='Расходы' || a[1]==='Расходы КЦ');
-  const totalExp = expAtoms.reduce((s,a)=>s+a[5],0);
+  const totalExp = expAtoms.reduce((s,a)=>s+a[6],0);
   const rev = totalOf(at, 'Доходы');
   const expM = monthlySeries(at, 'Расходы').map((v,i) => v + monthlySeries(at, 'Расходы КЦ')[i]);
   const byVid = [...sumBy(expAtoms, a=>a[3]).entries()].sort((a,b) => a[1]-b[1]);
@@ -762,7 +785,7 @@ pages.expense = () => {
 
   return `
     <div class="page-head">
-      <h1>Расходы</h1>
+      <h1>Расходы <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
       <div class="sub">Структура расходов · всё в тыс. ₸</div>
       ${renderFilterBar('expense')}
     </div>
@@ -837,7 +860,7 @@ pages.ebitda = () => {
 
   return `
     <div class="page-head">
-      <h1>EBITDA · Прибыльность</h1>
+      <h1>EBITDA · Прибыльность <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
       <div class="sub">Многолетняя динамика и структура по филиалам · тыс. ₸</div>
       ${renderFilterBar('ebitda')}
     </div>
@@ -890,12 +913,12 @@ pages.cash = () => {
   const rows = Object.entries(DATA.ostatok).filter(([k]) => k !== 'ИТОГО остаток ДС');
   const total = DATA.ostatok['ИТОГО остаток ДС'];
   // For coverage: use unfiltered total 2026 expenses
-  const totalExp2026 = DATA.atoms.filter(a => a[1]==='Расходы' || a[1]==='Расходы КЦ').reduce((s,a)=>s+a[5],0);
-  const totalRev2026 = DATA.atoms.filter(a => a[1]==='Доходы').reduce((s,a)=>s+a[5],0);
+  const totalExp2026 = DATA.atoms.filter(a => a[1]==='Расходы' || a[1]==='Расходы КЦ').reduce((s,a)=>s+a[6],0);
+  const totalRev2026 = DATA.atoms.filter(a => a[1]==='Доходы').reduce((s,a)=>s+a[6],0);
   return `
     <div class="page-head">
-      <h1>Остаток денежных средств</h1>
-      <div class="sub">Текущий кассовый остаток по группе · валюта — ₸ (единицы, не тыс.)</div>
+      <h1>Остаток денежных средств <span class="cadence ok">Актуализация ежедневно (рабочие дни)</span></h1>
+      <div class="sub">Факт · разбивка: Группа компаний + Узбекистан · валюта — ₸</div>
     </div>
 
     <div class="kpi-grid">
@@ -1010,7 +1033,7 @@ pages.dz = () => {
 
   return `
     <div class="page-head">
-      <h1>Дебиторская задолженность</h1>
+      <h1>Дебиторская задолженность <span class="cadence">Актуализация еженедельно, пятница</span></h1>
       <div class="sub">
         Источник: <b>${DATA.dz.source_file}</b> · последний недельный срез в папке ДЗ ·
         значения в ₸ (не тыс.) ·
@@ -1682,9 +1705,9 @@ const modals = {
       const sub = at.filter(a => a[2]===f);
       return {
         f,
-        rev: sub.filter(a=>a[1]==='Доходы').reduce((s,a)=>s+a[5],0),
-        exp: sub.filter(a=>a[1]==='Расходы'||a[1]==='Расходы КЦ').reduce((s,a)=>s+a[5],0),
-        eb: sub.filter(a=>a[1]==='EBITDA').reduce((s,a)=>s+a[5],0),
+        rev: sub.filter(a=>a[1]==='Доходы').reduce((s,a)=>s+a[6],0),
+        exp: sub.filter(a=>a[1]==='Расходы'||a[1]==='Расходы КЦ').reduce((s,a)=>s+a[6],0),
+        eb: sub.filter(a=>a[1]==='EBITDA').reduce((s,a)=>s+a[6],0),
       };
     }).sort((a,b) => b.rev-a.rev);
     return `${closeBtn}<h3>Филиалы · сводка</h3><div class="msub">В рамках фильтра, тыс. ₸</div>
@@ -1710,7 +1733,7 @@ const modals = {
   },
   overview_services: () => {
     const at = filteredAtoms();
-    const items = [...sumBy(at.filter(a => a[1]==='Доходы' && a[5]>0), a=>a[4]).entries()].filter(([k,v])=>v>0).sort((a,b) => b[1]-a[1]);
+    const items = [...sumBy(at.filter(a => a[1]==='Доходы' && a[6]>0), a=>a[4]).entries()].filter(([k,v])=>v>0).sort((a,b) => b[1]-a[1]);
     const total = items.reduce((s,x)=>s+x[1],0);
     return `${closeBtn}<h3>Все виды услуг · выручка</h3><div class="msub">В рамках фильтра, тыс. ₸</div>
       <div class="modal-table-wrap"><table><thead><tr><th>Услуга</th><th>Сумма</th><th>Доля</th></tr></thead><tbody>
@@ -1730,7 +1753,7 @@ const modals = {
     return `${closeBtn}<h3>Расходы по типам и месяцам</h3><div class="msub">В рамках фильтра, тыс. ₸</div>
       <div class="modal-table-wrap"><table><thead><tr><th>Тип</th>${ml.map(m => `<th>${m}</th>`).join('')}<th>Итого</th></tr></thead><tbody>
         ${vids.map(vid => {
-          const monthly = mm.map(m => expAtoms.filter(a => a[3]===vid && a[0]===m).reduce((s,a)=>s+a[5],0));
+          const monthly = mm.map(m => expAtoms.filter(a => a[3]===vid && a[0]===m).reduce((s,a)=>s+a[6],0));
           return `<tr><td>${vid}</td>${monthly.map(v => `<td class="num neg">${fmt(v,0)}</td>`).join('')}<td class="num neg" style="font-weight:600">${fmt(monthly.reduce((s,x)=>s+x,0),0)}</td></tr>`;
         }).join('')}
       </tbody></table></div>`;
