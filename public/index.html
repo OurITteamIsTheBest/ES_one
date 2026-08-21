@@ -606,6 +606,53 @@ pages.overview = () => {
   const revYearly = ys.map(y => DATA.pl_yearly['Доход от основной деятельности'][y] || 0);
   const ebYearly = ys.map(y => DATA.pl_ebitda[y] || 0);
 
+  // ==== Executive KPIs ====
+  const rev2025 = DATA.pl_yearly['Доход от основной деятельности']['2025'] || 0;
+  const growthYoY = rev2025 ? (rev-rev2025)/rev2025*100 : null;
+  const avgMonthExp = filterState.months.size ? (-totalExp/filterState.months.size) : 0;
+  const cashRunway = avgMonthExp > 0 ? (ost/1000) / avgMonthExp : 0;   // ostatok in ₸, expenses in тыс.
+  const dzTotal = (DATA.dz && DATA.dz.line_items) ? DATA.dz.line_items.reduce((s,x)=>s+x.total,0) : 0;
+  const headCount = (DATA.org_kz?.length || 0) + (DATA.org_uz?.length || 0);
+  const top3ClientsShare = (() => {
+    if (!DATA.dz?.line_items?.length) return 0;
+    const by = {};
+    DATA.dz.line_items.forEach(x => { by[x.buyer] = (by[x.buyer]||0) + x.total; });
+    const sorted = Object.values(by).sort((a,b)=>b-a);
+    const top3 = sorted.slice(0,3).reduce((s,x)=>s+x,0);
+    const total = sorted.reduce((s,x)=>s+x,0);
+    return total ? top3/total*100 : 0;
+  })();
+
+  // ==== Filial × service revenue matrix ====
+  // rows = filials, cols = top 6 services by revenue
+  const revenueAtoms = at.filter(a => a[1]==='Доходы' && a[6] > 0);
+  const serviceTotals = new Map();
+  revenueAtoms.forEach(a => serviceTotals.set(a[4], (serviceTotals.get(a[4])||0) + a[6]));
+  const topServices = [...serviceTotals.entries()].sort((a,b) => b[1]-a[1]).slice(0,6).map(x => x[0]);
+  const filialTotals = new Map();
+  revenueAtoms.forEach(a => filialTotals.set(a[2], (filialTotals.get(a[2])||0) + a[6]));
+  const topFilials = [...filialTotals.entries()].sort((a,b) => b[1]-a[1]).slice(0,10).map(x => x[0]);
+  const cell = (f, s) => revenueAtoms.filter(a => a[2]===f && a[4]===s).reduce((sum,a) => sum + a[6], 0);
+  const shortSvc = s => (s||'').replace('Доход от услуг ', '').replace('Доход от ', '').replace('Услуги ','');
+
+  // ==== P&L: план (PBI 2026) vs факт (PL_ES 2025) ====
+  const pl2025 = {
+    rev: DATA.pl_yearly['Доход от основной деятельности']['2025'] || 0,
+    var: DATA.pl_yearly['Переменные производственные расходы']['2025'] || 0,
+    fix: DATA.pl_yearly['Постоянные производственные расходы']['2025'] || 0,
+    sale: DATA.pl_yearly['Расходы по реализации']['2025'] || 0,
+    adm: DATA.pl_yearly['Административные расходы']['2025'] || 0,
+    ebitda: DATA.pl_ebitda['2025'] || 0,
+  };
+  const pl2026 = {
+    rev: DATA.pl_yearly['Доход от основной деятельности']['2026'] || 0,
+    var: DATA.pl_yearly['Переменные производственные расходы']['2026'] || 0,
+    fix: DATA.pl_yearly['Постоянные производственные расходы']['2026'] || 0,
+    sale: DATA.pl_yearly['Расходы по реализации']['2026'] || 0,
+    adm: DATA.pl_yearly['Административные расходы']['2026'] || 0,
+    ebitda: DATA.pl_ebitda['2026'] || 0,
+  };
+
   return `
     <div class="page-head">
       <h1>Обзор <span class="cadence">ОПиУ · План — квартально, Факт+Прогноз — 14 числа месяца</span></h1>
@@ -616,11 +663,11 @@ pages.overview = () => {
     <div class="kpi-grid">
       <div class="kpi"><div class="label">Выручка</div>
         <div class="value num">${fmtCompact(rev)} ₸</div>
-        <div class="delta">${filterState.months.size < 12 ? filterState.months.size + ' мес.' : 'Год'} · ${filterState.filials.size < DATA.filials.length ? filterState.filials.size + '/' + DATA.filials.length + ' филиалов' : 'все филиалы'}</div>
+        <div class="delta ${growthYoY!==null && growthYoY>=0?'pos':(growthYoY!==null?'neg':'')}">${growthYoY!==null ? fmtPct(growthYoY) + ' vs 2025 факт' : 'нет базы 2025'}</div>
       </div>
       <div class="kpi"><div class="label">Расходы</div>
         <div class="value num">${fmtCompact(-totalExp)} ₸</div>
-        <div class="delta">из них КЦ ${fmtCompact(-expKC)} ₸</div>
+        <div class="delta">из них КЦ ${fmtCompact(-expKC)} ₸ · ${rev?fmtPct(-totalExp/rev*100):'—'} от выручки</div>
       </div>
       <div class="kpi"><div class="label">EBITDA</div>
         <div class="value num">${fmtCompact(eb)} ₸</div>
@@ -628,7 +675,26 @@ pages.overview = () => {
       </div>
       <div class="kpi"><div class="label">Остаток на счетах</div>
         <div class="value num">${fmt(ost/1e6,1)} млн ₸</div>
-        <div class="delta">на снимок · всё по группе</div>
+        <div class="delta ${cashRunway>=2?'pos':(cashRunway>=1?'':'neg')}">Runway ${cashRunway.toFixed(1)} мес. расходов</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr))">
+      <div class="kpi"><div class="label">Дебиторка 30+</div>
+        <div class="value num">${fmt(dzTotal/1e6,0)} млн ₸</div>
+        <div class="delta">${DATA.dz?.line_items?.length||0} позиций</div>
+      </div>
+      <div class="kpi"><div class="label">Штат (активные)</div>
+        <div class="value num">${headCount}</div>
+        <div class="delta">KZ ${DATA.org_kz?.length||0} · UZ ${DATA.org_uz?.length||0}</div>
+      </div>
+      <div class="kpi"><div class="label">Выручка на 1 сотрудника</div>
+        <div class="value num">${headCount?fmtCompact(rev/headCount):'—'} ₸</div>
+        <div class="delta">${filterState.months.size} мес.</div>
+      </div>
+      <div class="kpi"><div class="label">Топ-3 клиента в ДЗ</div>
+        <div class="value num">${top3ClientsShare.toFixed(1)}%</div>
+        <div class="delta">концентрация задолженности</div>
       </div>
     </div>
 
@@ -688,11 +754,72 @@ pages.overview = () => {
       </div>
     </div>
 
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><h3>Матрица «Филиал × Продукт» · выручка</h3>
+        <span style="color:var(--muted); font-size:11.5px">Топ-10 филиалов × топ-6 услуг · всё в тыс. ₸ · в фильтре</span></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th style="text-align:left">Филиал</th>${topServices.map(s => `<th style="text-align:right">${shortSvc(s)}</th>`).join('')}<th style="text-align:right">Прочее</th><th style="text-align:right; font-weight:600">Итого</th></tr></thead>
+        <tbody>
+          ${topFilials.map(f => {
+            const rowTotal = filialTotals.get(f) || 0;
+            const covered = topServices.reduce((s,svc) => s + cell(f, svc), 0);
+            const other = rowTotal - covered;
+            return `<tr>
+              <td style="text-align:left"><b>${f}</b></td>
+              ${topServices.map(s => {
+                const v = cell(f, s);
+                return `<td class="num" style="${!v?'color:var(--muted)':''}">${v ? fmtCompact(v) : '—'}</td>`;
+              }).join('')}
+              <td class="num" style="color:var(--muted)">${other > 0 ? fmtCompact(other) : '—'}</td>
+              <td class="num" style="font-weight:600">${fmtCompact(rowTotal)}</td>
+            </tr>`;
+          }).join('')}
+          <tr style="background:var(--subtle); font-weight:600">
+            <td style="text-align:left">Итого по услуге</td>
+            ${topServices.map(s => `<td class="num">${fmtCompact(serviceTotals.get(s)||0)}</td>`).join('')}
+            <td class="num">${fmtCompact([...serviceTotals.values()].reduce((s,x)=>s+x,0) - topServices.reduce((s,svc) => s + (serviceTotals.get(svc)||0), 0))}</td>
+            <td class="num" style="color:var(--pos)">${fmtCompact([...serviceTotals.values()].reduce((s,x)=>s+x,0))}</td>
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><h3>P&L · Факт 2025 vs План 2026</h3>
+        <span style="color:var(--muted); font-size:11.5px">по PL_ES · не зависит от фильтров · тыс. ₸</span></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th style="text-align:left">Показатель</th><th>Факт 2025</th><th>План 2026</th><th>Δ млн ₸</th><th>Δ %</th></tr></thead>
+        <tbody>
+          ${[
+            ['Выручка','rev', true],
+            ['Переменные расходы','var', false],
+            ['Постоянные расходы','fix', false],
+            ['Расходы по реализации','sale', false],
+            ['Административные расходы','adm', false],
+            ['EBITDA (расчёт)','ebitda', true],
+          ].map(([label, key, isGood]) => {
+            const f2025 = pl2025[key], f2026 = pl2026[key];
+            const delta = f2026 - f2025;
+            const pct = f2025 ? delta/Math.abs(f2025)*100 : null;
+            const goodDelta = isGood ? delta >= 0 : delta <= 0;
+            return `<tr>
+              <td style="text-align:left"><b>${label}</b></td>
+              <td class="num">${fmt(f2025,0)}</td>
+              <td class="num">${fmt(f2026,0)}</td>
+              <td class="num ${goodDelta?'pos':'neg'}">${(delta>=0?'+':'')}${fmt(delta/1000,1)}</td>
+              <td class="num ${goodDelta?'pos':'neg'}">${pct!==null ? (pct>=0?'+':'')+pct.toFixed(1)+'%' : '—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    </div>
+
     <div class="footer-note">
-      <b>Источники:</b> PBI — детальный бюджет 2026 (17 205 агрегированных записей, ${fmtCompact(rev)} выручки в фильтре).
-      PL_ES — многолетний тренд 2020–2026 (только для графика годовой динамики).
-      Остаток на счете — снимок ДС на текущий момент.
-      Оргструктура — только действующие сотрудники (ACTIVE в исходной таблице).
+      <b>Источники:</b> PBI — детальный бюджет 2026 (${DATA.atoms.length} агрегированных записей).
+      PL_ES — многолетний БДР 2020–2026 (2020–2025 факт, 2026 план).
+      Остаток на счете — снимок ДС.
+      ДЗ — последний недельный срез: <b>${DATA.dz?.source_file || '—'}</b>.
+      Оргструктура — только действующие сотрудники.
     </div>
   `;
 };
