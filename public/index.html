@@ -660,22 +660,44 @@ pages.overview = () => {
       ${renderFilterBar('overview')}
     </div>
 
+    ${(() => {
+      // Факт-KPI из PL_ES (2025 — последний закрытый год)
+      const factYear = '2025', prevYear = '2024';
+      const revFact = DATA.pl_yearly['Доход от основной деятельности'][factYear] || 0;
+      const revPrev = DATA.pl_yearly['Доход от основной деятельности'][prevYear] || 0;
+      const expFact = (DATA.pl_yearly['Переменные производственные расходы'][factYear]||0)
+        + (DATA.pl_yearly['Постоянные производственные расходы'][factYear]||0)
+        + (DATA.pl_yearly['Расходы по реализации'][factYear]||0)
+        + (DATA.pl_yearly['Административные расходы'][factYear]||0);
+      const expPrev = (DATA.pl_yearly['Переменные производственные расходы'][prevYear]||0)
+        + (DATA.pl_yearly['Постоянные производственные расходы'][prevYear]||0)
+        + (DATA.pl_yearly['Расходы по реализации'][prevYear]||0)
+        + (DATA.pl_yearly['Административные расходы'][prevYear]||0);
+      const ebFact = DATA.pl_ebitda[factYear] || 0;
+      const ebPrev = DATA.pl_ebitda[prevYear] || 0;
+      const marginFact = revFact ? ebFact/revFact*100 : 0;
+      const marginPrev = revPrev ? ebPrev/revPrev*100 : 0;
+      const revGrowth = revPrev ? (revFact-revPrev)/revPrev*100 : null;
+      const expGrowth = expPrev ? (expFact-expPrev)/expPrev*100 : null;
+      const ebGrowth = ebPrev ? (ebFact-ebPrev)/Math.abs(ebPrev)*100 : null;
+      const rpe = headCount ? revFact/headCount : 0;
+      return `
     <div class="kpi-grid">
-      <div class="kpi"><div class="label">Выручка <span class="kpi-badge plan">План</span></div>
-        <div class="value num">${fmtCompact(rev)} ₸</div>
-        <div class="delta ${growthYoY!==null && growthYoY>=0?'pos':(growthYoY!==null?'neg':'')}">${growthYoY!==null ? fmtPct(growthYoY) + ' vs 2025 факт' : 'нет базы 2025'}</div>
+      <div class="kpi"><div class="label">Выручка ${factYear} <span class="kpi-badge fact">Факт</span></div>
+        <div class="value num">${fmtCompact(revFact)} ₸</div>
+        <div class="delta ${revGrowth!==null && revGrowth>=0?'pos':(revGrowth!==null?'neg':'')}">${revGrowth!==null ? (revGrowth>=0?'+':'')+revGrowth.toFixed(1)+'% vs '+prevYear+' факт' : '—'}</div>
       </div>
-      <div class="kpi"><div class="label">Расходы <span class="kpi-badge plan">План</span></div>
-        <div class="value num">${fmtCompact(-totalExp)} ₸</div>
-        <div class="delta">из них КЦ ${fmtCompact(-expKC)} ₸ · ${rev?fmtPct(-totalExp/rev*100):'—'} от выручки</div>
+      <div class="kpi"><div class="label">Расходы ${factYear} <span class="kpi-badge fact">Факт</span></div>
+        <div class="value num">${fmtCompact(expFact)} ₸</div>
+        <div class="delta ${expGrowth!==null && expGrowth>=0?'neg':'pos'}">${expGrowth!==null ? (expGrowth>=0?'+':'')+expGrowth.toFixed(1)+'% vs '+prevYear+' · '+(revFact?(expFact/revFact*100).toFixed(1)+'% от выручки':'—') : '—'}</div>
       </div>
-      <div class="kpi"><div class="label">EBITDA <span class="kpi-badge plan">План</span></div>
-        <div class="value num">${fmtCompact(eb)} ₸</div>
-        <div class="delta ${margin>=15?'pos':(margin>0?'':'neg')}">Маржа ${fmtPct(margin)}</div>
+      <div class="kpi"><div class="label">EBITDA ${factYear} <span class="kpi-badge fact">Факт</span></div>
+        <div class="value num">${fmtCompact(ebFact)} ₸</div>
+        <div class="delta ${marginFact>=15?'pos':(marginFact>0?'':'neg')}">Маржа ${fmtPct(marginFact)} · ${ebGrowth!==null ? (ebGrowth>=0?'+':'')+ebGrowth.toFixed(1)+'% vs '+prevYear : ''}</div>
       </div>
       <div class="kpi"><div class="label">Остаток на счетах <span class="kpi-badge fact">Факт</span></div>
         <div class="value num">${fmt(ost/1e6,1)} млн ₸</div>
-        <div class="delta ${cashRunway>=2?'pos':(cashRunway>=1?'':'neg')}">Runway ${cashRunway.toFixed(1)} мес. расходов</div>
+        <div class="delta ${cashRunway>=2?'pos':(cashRunway>=1?'':'neg')}">Runway ${cashRunway.toFixed(1)} мес. плановых расходов</div>
       </div>
     </div>
 
@@ -692,11 +714,12 @@ pages.overview = () => {
         <div class="value num">${headCount}</div>
         <div class="delta">KZ ${DATA.org_kz?.length||0} · UZ ${DATA.org_uz?.length||0}</div>
       </div>
-      <div class="kpi"><div class="label">Выручка на 1 сотрудника <span class="kpi-badge calc">Расчёт</span></div>
-        <div class="value num">${headCount?fmtCompact(rev/headCount):'—'} ₸</div>
-        <div class="delta">План выручки ÷ штат · ${filterState.months.size} мес.</div>
+      <div class="kpi"><div class="label">Выручка на 1 сотрудника ${factYear} <span class="kpi-badge fact">Факт</span></div>
+        <div class="value num">${headCount?fmtCompact(rpe):'—'} ₸</div>
+        <div class="delta">Факт выручки ${factYear} ÷ текущий штат</div>
       </div>
-    </div>
+    </div>`;
+    })()}
 
     <div class="grid-2">
       <div class="card">
